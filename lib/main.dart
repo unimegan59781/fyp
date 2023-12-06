@@ -1,4 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:fyp/Album.dart';
+import 'package:fyp/Services/dbHelper.dart';
+
+import 'package:flutter/services.dart' show rootBundle;
+
+import 'package:csv/csv.dart';
 
 void main() {
   runApp(const MyApp());
@@ -11,7 +17,7 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Flutter Demo',
+      title: 'Flutter SQLite Demo - Music',
       theme: ThemeData(
         // This is the theme of your application.
         //
@@ -31,7 +37,7 @@ class MyApp extends StatelessWidget {
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
         useMaterial3: true,
       ),
-      home: const MyHomePage(title: 'Flutter Demo Home Page'),
+      home: const MyHomePage(title: 'Flutter SQLite Demo - Music'),
     );
   }
 }
@@ -55,17 +61,40 @@ class MyHomePage extends StatefulWidget {
 }
 
 class _MyHomePageState extends State<MyHomePage> {
-  int _counter = 0;
+  late dbHelper handler;
 
-  void _incrementCounter() {
-    setState(() {
-      // This call to setState tells the Flutter framework that something has
-      // changed in this State, which causes it to rerun the build method below
-      // so that the display can reflect the updated values. If we changed
-      // _counter without calling setState(), then the build method would not be
-      // called again, and so nothing would appear to happen.
-      _counter++;
+  @override
+  void initState() {
+    super.initState();
+    handler = dbHelper();
+    handler.initializeDB().whenComplete(() async {
+      await addAlbum();
+      setState(() {});
     });
+  }
+
+  Future<String> loadAsset() async {
+    return await rootBundle.loadString('assets/config.json');
+  }
+
+  Future<int> addAlbum() async {
+    final rawCSV = await rootBundle.loadString("assets/data.csv");
+    List<List<dynamic>> csvList = const CsvToListConverter().convert(rawCSV);
+    List<Album> albumList = [];
+    for (var line in csvList) {
+      Album album =
+          Album(id: line[0], title: line[1], artist: line[2], price: line[3]);
+      albumList.add(album);
+    }
+    return await handler.insertAlbums(albumList);
+    // Album first = Album(
+    //     id: 1, title: "The Queen Is Dead", artist: "The Smiths", price: 24.86);
+    // Album second =
+    //     Album(id: 2, title: "Nevermind", artist: "Nirvana", price: 17.39);
+    // Album third =
+    //     Album(id: 3, title: "OK Computer", artist: "RadioHead", price: 5.50);
+    // List<Album> listOfAlbums = [first, second, third];
+    // return await handler.insertAlbums(listOfAlbums);
   }
 
   @override
@@ -86,40 +115,44 @@ class _MyHomePageState extends State<MyHomePage> {
         // the App.build method, and use it to set our appbar title.
         title: Text(widget.title),
       ),
-      body: Center(
-        // Center is a layout widget. It takes a single child and positions it
-        // in the middle of the parent.
-        child: Column(
-          // Column is also a layout widget. It takes a list of children and
-          // arranges them vertically. By default, it sizes itself to fit its
-          // children horizontally, and tries to be as tall as its parent.
-          //
-          // Column has various properties to control how it sizes itself and
-          // how it positions its children. Here we use mainAxisAlignment to
-          // center the children vertically; the main axis here is the vertical
-          // axis because Columns are vertical (the cross axis would be
-          // horizontal).
-          //
-          // TRY THIS: Invoke "debug painting" (choose the "Toggle Debug Paint"
-          // action in the IDE, or press "p" in the console), to see the
-          // wireframe for each widget.
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: <Widget>[
-            const Text(
-              'You have pushed the button this many times:',
-            ),
-            Text(
-              '$_counter',
-              style: Theme.of(context).textTheme.headlineMedium,
-            ),
-          ],
-        ),
+      body: FutureBuilder(
+        future: handler.retrieveAlbums(),
+        builder: (BuildContext context, AsyncSnapshot<List<Album>> snapshot) {
+          if (snapshot.hasData) {
+            return ListView.builder(
+              itemCount: snapshot.data?.length,
+              itemBuilder: (BuildContext context, int index) {
+                return Dismissible(
+                  direction: DismissDirection.endToStart,
+                  background: Container(
+                    color: Colors.red,
+                    alignment: Alignment.centerRight,
+                    padding: const EdgeInsets.symmetric(horizontal: 10.0),
+                    child: const Icon(Icons.delete_forever),
+                  ),
+                  key: ValueKey<int>(snapshot.data![index].id),
+                  onDismissed: (DismissDirection direction) async {
+                    await handler.deleteAlbum(snapshot.data![index].id);
+                    setState(() {
+                      snapshot.data!.remove(snapshot.data![index]);
+                    });
+                  },
+                  child: Card(
+                      child: ListTile(
+                    contentPadding: const EdgeInsets.all(8.0),
+                    title: Text(snapshot.data![index].title),
+                    subtitle: Text(snapshot.data![index].artist +
+                        "  £" +
+                        snapshot.data![index].price.toString()),
+                  )),
+                );
+              },
+            );
+          } else {
+            return const Center(child: CircularProgressIndicator());
+          }
+        },
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _incrementCounter,
-        tooltip: 'Increment',
-        child: const Icon(Icons.add),
-      ), // This trailing comma makes auto-formatting nicer for build methods.
     );
   }
 }
